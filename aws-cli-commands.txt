@@ -1,0 +1,180 @@
+/ aws commands to generate the latest AMI-ID for Ubuntu t2.micro
+
+aws ec2 describe-images \
+  --owners 099720109477 \
+  --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*" \
+            "Name=virtualization-type,Values=hvm" \
+  --query 'Images[*].[ImageId,CreationDate]' \
+  --output text | sort -k2 -r | head -n1
+
+/ output for ubuntu t2.micro AMI - ami-0a7d80731ae1b2435 
+
+/* aws cli command to create a key-pair named "myclikeypair" 
+
+aws ec2 create-key-pair \
+  --key-name MycliKeyPair \
+  --query 'KeyMaterial' \
+  --output text > MycliKeyPair.pem
+
+/ change the permissions for the key pair to the appropriate key pairs 
+
+chmod 700 MycliKeyPair.pem
+
+/ aws-cli command to create a security group with name (my-ec2-sg) 
+
+aws ec2 create-security-group \
+  --group-name my-ec2-sg \
+  --description "Allow SSH HTTP and ICMP" \
+  --vpc-id $(aws ec2 describe-vpcs --query 'Vpcs[0].VpcId' --output text)
+
+/ OUTPUT FOR SECURITY GROUP ID AND ARN: 
+{
+    "GroupId": "sg-00234e3e4837fa299",
+    "SecurityGroupArn": "arn:aws:ec2:us-east-1:814647154673:security-group/sg-00234e3e4837fa299"
+}
+
+/ aws cli commands to see the created security groups and the security group id
+
+aws ec2 describe-security-groups \
+  --query 'SecurityGroups[*].[GroupId,GroupName]' \
+  --output table
+ 
+/ outputs will look like this 
+---------------------------------------------
+|          DescribeSecurityGroups           |
++-----------------------+-------------------+
+|  sg-00234e3e4837fa299 |  my-ec2-sg        |
+|  sg-065572f0d249e660e |  default          |
+|  sg-0ee9a442a4d48db20 |  launch-wizard-2  |
+|  sg-07aafeb8d4453f563 |  launch-wizard-3  |
++-----------------------+-------------------+
+
+/ aws cli commands to allow SSH protocol connection from anywhere (port 22)
+
+aws ec2 authorize-security-group-ingress \
+  --group-name mycli-sg \
+  --protocol tcp \
+  --port 22 \
+  --cidr 0.0.0.0/0
+
+/aws cli commands to create sg inbound rule to allow for HTTP connection to ec2 instance (port 80)
+
+aws ec2 authorize-security-group-ingress \
+  --group-name my-ec2-sg \
+  --protocol tcp \
+  --port 80 \
+  --cidr 0.0.0.0/0
+ 
+
+/aws cli commands to see the security group rules you've created within the security group (my-ec2-sg)
+aws ec2 describe-security-groups \
+  --group-names my-ec2-sg \
+  --query "SecurityGroups[*].IpPermissions"
+
+/ouput of all the permissions you've created from the previous command will look like this 
+[
+    [
+        {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "UserIdGroupPairs": [],
+            "IpRanges": [
+                {
+                    "CidrIp": "0.0.0.0/0"
+                }
+            ],
+            "Ipv6Ranges": [],
+            "PrefixListIds": []
+        },
+        {
+            "IpProtocol": "tcp",
+            "FromPort": 22,
+            "ToPort": 22,
+            "UserIdGroupPairs": [],
+            "IpRanges": [
+                {
+                    "CidrIp": "0.0.0.0/0"
+                }
+            ],
+            "Ipv6Ranges": [],
+            "PrefixListIds": []
+        }
+    ]
+]
+
+/AWS CLI command to launch the ec2 instance 
+
+aws ec2 run-instances \
+  --image-id ami-0a7d80731ae1b2435 \  # <- replace with your actual AMI ID
+  --count 1 \
+  --instance-type t2.micro \
+  --key-name MycliKeyPair \
+  --security-groups my-ec2-sg \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=MyUbuntuInstance}]'
+
+/AWS cli commands to see the state of all instances 
+
+aws ec2 describe-instances \
+  --query "Reservations[*].Instances[*].[InstanceId,State.Name,Tags[?Key=='Name']|[0].Value]" \
+  --output table
+
+/output will look like this, in my case i have two "Runnig" instances, called MyUbuntuInstance and cloudwatch-instance
+-----------------------------------------------------------
+|                    DescribeInstances                    |
++----------------------+----------+-----------------------+
+|  i-002807c0b58007418 |  running |  MyUbuntuInstance     |
+|  i-00f4141a52a8d82b7 |  running |  cloudwatch-instance  |
++----------------------+----------+-----------------------+
+
+/AWS cli commands to get the public IP address of the MyUbuntuInstance.
+
+aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=MyUbuntuInstance" \
+  --query "Reservations[*].Instances[*].PublicIpAddress" \
+  --output text
+
+/public ip address for my ec2 instance here: 34.207.127.61
+
+/ command to ssh to the created instance ( MyUbuntuInstance) with keypair ( MycliKeyPair.pem )
+
+ssh -i MycliKeyPair.pem ubuntu@34.207.127.61
+
+🎉🎉🎉🎉🎉🎉🎉🎉
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '34.207.127.61' (ED25519) to the list of known hosts.
+Welcome to Ubuntu 22.04.5 LTS (GNU/Linux 6.8.0-1029-aws x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Fri May 16 10:14:11 UTC 2025
+
+  System load:  0.0               Processes:             102
+  Usage of /:   22.0% of 7.57GB   Users logged in:       0
+  Memory usage: 20%               IPv4 address for eth0: 172.31.93.17
+  Swap usage:   0%
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+Enable ESM Apps to receive additional future security updates.
+See https://ubuntu.com/esm or run: sudo pro status
+
+
+
+The programs included with the Ubuntu system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Ubuntu comes with ABSOLUTELY NO WARRANTY, to the extent permitted by
+applicable law.
+
+To run a command as administrator (user "root"), use "sudo <command>".
+See "man sudo_root" for details.
+
+ubuntu@ip-172-31-93-17:~$ 
+ 
+
